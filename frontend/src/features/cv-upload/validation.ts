@@ -1,0 +1,100 @@
+// Azure AI Document Intelligence on the free tier (F0) rejects files over 4 MB,
+// so the form stops them before they are sent.
+export const MAX_CV_BYTES = 4 * 1024 * 1024
+
+const PDF_SIGNATURE = '%PDF-'
+
+export type ApplicantFields = {
+  fullName: string
+  email: string
+  phone: string
+  profileUrl: string
+  consent: boolean
+}
+
+export type FieldName = keyof ApplicantFields | 'cv'
+
+export type FieldErrors = Partial<Record<FieldName, string>>
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '').replace('.', ',')} MB`
+}
+
+/**
+ * Checks the file the way the backend will: by its first bytes, not by the
+ * name or the MIME type the browser guessed. Returns an error message or null.
+ */
+export async function validateCvFile(file: File): Promise<string | null> {
+  const looksLikePdf =
+    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  if (!looksLikePdf) return 'Wybierz plik w formacie PDF.'
+  if (file.size === 0) return 'Ten plik jest pusty. Wybierz inny PDF.'
+  if (file.size > MAX_CV_BYTES) {
+    return `Plik ma ${formatBytes(file.size)}. Maksymalny rozmiar to ${formatBytes(MAX_CV_BYTES)}.`
+  }
+
+  const head = new Uint8Array(await file.slice(0, PDF_SIGNATURE.length).arrayBuffer())
+  const signature = String.fromCharCode(...head)
+  if (signature !== PDF_SIGNATURE) {
+    return 'Ten plik nie jest prawidłowym PDF-em. Wyeksportuj CV do PDF i spróbuj ponownie.'
+  }
+  return null
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_PATTERN = /^\+?[\d\s-]{9,15}$/
+
+export function validateField(name: keyof ApplicantFields, fields: ApplicantFields): string | null {
+  switch (name) {
+    case 'fullName': {
+      const value = fields.fullName.trim()
+      if (!value) return 'Podaj imię i nazwisko.'
+      if (value.length < 3) return 'Imię i nazwisko musi mieć co najmniej 3 znaki.'
+      return null
+    }
+    case 'email': {
+      const value = fields.email.trim()
+      if (!value) return 'Podaj adres e-mail.'
+      if (!EMAIL_PATTERN.test(value)) return 'Podaj e-mail w formacie ty@example.com.'
+      return null
+    }
+    case 'phone': {
+      const value = fields.phone.trim()
+      if (value && !PHONE_PATTERN.test(value)) {
+        return 'Podaj numer w formacie +48 600 000 000 albo zostaw pole puste.'
+      }
+      return null
+    }
+    case 'profileUrl': {
+      const value = fields.profileUrl.trim()
+      if (value && !isHttpUrl(value)) {
+        return 'Podaj pełny adres zaczynający się od https://, np. https://linkedin.com/in/jan.'
+      }
+      return null
+    }
+    case 'consent':
+      return fields.consent ? null : 'Zgoda jest wymagana, żeby przetworzyć Twoje CV.'
+  }
+}
+
+export function validateApplicant(fields: ApplicantFields): FieldErrors {
+  const errors: FieldErrors = {}
+  for (const name of Object.keys(fields) as (keyof ApplicantFields)[]) {
+    const error = validateField(name, fields)
+    if (error) errors[name] = error
+  }
+  return errors
+}
+
+// Recruiters will open this link later, so anything other than http(s)
+// (javascript:, data:, file:) is refused here as well as on the server.
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || url.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
