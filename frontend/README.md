@@ -70,6 +70,7 @@ Walidacja w przeglądarce służy tylko wygodzie użytkownika i łatwo ją obej�
 
 - sprawdzić, że plik zaczyna się od `%PDF-`, i odrzucić go z `415`, jeśli nie;
 - odrzucić zbyt duży plik z `413`;
+- odrzucić PDF zabezpieczony hasłem, bo Document Intelligence go nie odczyta;
 - przyjąć `profileUrl` tylko ze schematem `http` lub `https`, zanim rekruter zobaczy go jako link;
 - odrzucić żądanie bez `consent=true`;
 - pozwolić w CORS tylko na adres frontendu;

@@ -38,10 +38,15 @@ export async function validateCvFile(file: File): Promise<string | null> {
     return `Plik ma ${formatBytes(file.size)}. Maksymalny rozmiar to ${formatBytes(MAX_CV_BYTES)}.`
   }
 
-  const head = new Uint8Array(await file.slice(0, PDF_SIGNATURE.length).arrayBuffer())
-  const signature = String.fromCharCode(...head)
-  if (signature !== PDF_SIGNATURE) {
+  // latin1 maps every byte to one character, so PDF keywords can be searched as text.
+  const content = new TextDecoder('latin1').decode(await file.arrayBuffer())
+  if (!content.startsWith(PDF_SIGNATURE)) {
     return 'Ten plik nie jest prawidłowym PDF-em. Wyeksportuj CV do PDF i spróbuj ponownie.'
+  }
+  // Document Intelligence cannot read password-protected PDFs, and the error
+  // would otherwise surface only after the upload.
+  if (content.includes('/Encrypt')) {
+    return 'Ten PDF jest zabezpieczony hasłem. Zapisz CV bez hasła i spróbuj ponownie.'
   }
   return null
 }

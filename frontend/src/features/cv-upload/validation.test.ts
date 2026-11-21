@@ -27,6 +27,11 @@ describe('validateCvFile', () => {
     expect(await validateCvFile(pdf('MZ\x90\x00 not a pdf'))).toMatch(/nie jest prawidłowym PDF/)
   })
 
+  it('rejects a password-protected PDF', async () => {
+    const locked = pdf('%PDF-1.7\n1 0 obj\ntrailer << /Root 1 0 R /Encrypt 5 0 R >>\n%%EOF')
+    expect(await validateCvFile(locked)).toMatch(/zabezpieczony hasłem/)
+  })
+
   it('rejects an empty file', async () => {
     expect(await validateCvFile(pdf(''))).toMatch(/pusty/)
   })

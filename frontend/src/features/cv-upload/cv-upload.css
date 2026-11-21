@@ -239,6 +239,20 @@
   color: var(--color-text-muted);
 }
 
+.touch-only {
+  display: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .pointer-only {
+    display: none;
+  }
+
+  .touch-only {
+    display: revert;
+  }
+}
+
 .dropzone-link {
   font-weight: 600;
   color: var(--color-primary);

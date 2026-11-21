@@ -83,7 +83,7 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
         CV w formacie PDF <span aria-hidden="true">*</span>
       </span>
       <span id={hintId} className="field-hint">
-        Jeden plik PDF, maks. {formatBytes(MAX_CV_BYTES)}. Najlepiej z zaznaczalnym tekstem, nie skan.
+        Jeden plik PDF bez hasła, maks. {formatBytes(MAX_CV_BYTES)}.
       </span>
 
       <div
@@ -141,12 +141,23 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
             <span className="dropzone-icon">
               <UploadIcon />
             </span>
-            <span className="dropzone-title">
-              {dragging ? 'Upuść plik, aby go dodać' : checking ? 'Sprawdzam plik…' : 'Przeciągnij CV tutaj'}
-            </span>
-            <span className="dropzone-subtitle">
-              albo <span className="dropzone-link">wybierz plik z dysku</span>
-            </span>
+            {dragging || checking ? (
+              <span className="dropzone-title">
+                {dragging ? 'Upuść plik, aby go dodać' : 'Sprawdzam plik…'}
+              </span>
+            ) : (
+              <>
+                {/* Dragging needs a mouse, so touch screens get a plain "pick a file" prompt. */}
+                <span className="dropzone-title pointer-only">Przeciągnij CV tutaj</span>
+                <span className="dropzone-subtitle pointer-only">
+                  albo <span className="dropzone-link">wybierz plik z dysku</span>
+                </span>
+                <span className="dropzone-title touch-only">Dodaj CV</span>
+                <span className="dropzone-subtitle touch-only">
+                  <span className="dropzone-link">Wybierz plik z urządzenia</span>
+                </span>
+              </>
+            )}
           </label>
         )}
       </div>
