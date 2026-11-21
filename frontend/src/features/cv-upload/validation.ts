@@ -47,7 +47,9 @@ export async function validateCvFile(file: File): Promise<string | null> {
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const PHONE_PATTERN = /^\+?[\d\s-]{9,15}$/
+// Separators people type (spaces, dashes, brackets) are ignored; 9 to 15 digits
+// covers Polish numbers with or without the 0048/+48 prefix.
+const PHONE_PATTERN = /^\+?\d{9,15}$/
 
 export function validateField(name: keyof ApplicantFields, fields: ApplicantFields): string | null {
   switch (name) {
@@ -65,7 +67,7 @@ export function validateField(name: keyof ApplicantFields, fields: ApplicantFiel
     }
     case 'phone': {
       const value = fields.phone.trim()
-      if (value && !PHONE_PATTERN.test(value)) {
+      if (value && !PHONE_PATTERN.test(value.replace(/[\s\-()]/g, ''))) {
         return 'Podaj numer w formacie +48 600 000 000 albo zostaw pole puste.'
       }
       return null

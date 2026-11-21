@@ -59,6 +59,19 @@ describe('CvUploadForm', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/Zgoda jest wymagana/))
   })
 
+  it('tells screen readers which file is attached', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    const input = screen.getByLabelText(/CV w formacie PDF/)
+
+    await user.upload(input, pdf())
+    await screen.findByText('Anna_Nowak_CV')
+
+    const ids = input.getAttribute('aria-describedby')!.split(' ')
+    const described = ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ')
+    expect(described).toMatch(/Dodany plik: Anna_Nowak_CV\.pdf/)
+  })
+
   it('rejects a dropped file that is not a PDF', async () => {
     render(<CvUploadForm offer={offer} />)
     const zone = document.querySelector('.dropzone')!
@@ -88,6 +101,7 @@ describe('CvUploadForm', () => {
     await user.click(screen.getByRole('button', { name: 'Wyślij aplikację' }))
 
     expect(screen.getByRole('progressbar')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Anuluj wysyłanie' }))
     const heading = await screen.findByRole('heading', { name: 'Aplikacja wysłana' }, { timeout: 4000 })
     expect(document.activeElement).toBe(heading)
     expect(onSubmitted).toHaveBeenCalledWith(expect.objectContaining({ demo: true }))

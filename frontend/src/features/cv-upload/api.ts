@@ -1,3 +1,5 @@
+import type { FieldErrors, FieldName } from './validation'
+
 export type ApplicationPayload = {
   offerId: string
   fullName: string
@@ -20,6 +22,13 @@ export type UploadOptions = {
 
 export class UploadError extends Error {
   name = 'UploadError'
+  /** Per-field messages from the server, keyed by form field name. */
+  readonly fieldErrors: FieldErrors
+
+  constructor(message: string, fieldErrors: FieldErrors = {}) {
+    super(message)
+    this.fieldErrors = fieldErrors
+  }
 }
 
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
@@ -68,7 +77,11 @@ function sendToApi(payload: ApplicationPayload, { onProgress, signal }: UploadOp
 
     xhr.addEventListener('load', () => {
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new UploadError(messageForStatus(xhr.status)))
+        const fieldErrors = readFieldErrors(xhr.response)
+        const message = Object.keys(fieldErrors).length
+          ? 'Serwer odrzucił część danych. Popraw zaznaczone pola.'
+          : messageForStatus(xhr.status)
+        reject(new UploadError(message, fieldErrors))
         return
       }
       const applicationId = readApplicationId(xhr.response)
@@ -101,10 +114,34 @@ function readApplicationId(response: unknown): string | null {
   return typeof id === 'string' && id.length > 0 && id.length <= 128 ? id : null
 }
 
+const FORM_FIELDS: FieldName[] = ['fullName', 'email', 'phone', 'profileUrl', 'cv', 'consent']
+const MAX_SERVER_MESSAGE = 300
+
+// ASP.NET Core answers invalid input with ValidationProblemDetails:
+// { "errors": { "FullName": ["..."], "$.email": ["..."] } }. Keys are matched
+// to form fields ignoring case and punctuation; unknown keys are dropped.
+function readFieldErrors(response: unknown): FieldErrors {
+  if (typeof response !== 'object' || response === null) return {}
+  const errors = (response as Record<string, unknown>).errors
+  if (typeof errors !== 'object' || errors === null) return {}
+
+  const result: FieldErrors = {}
+  for (const [key, value] of Object.entries(errors)) {
+    const normalized = key.toLowerCase().replace(/[^a-z]/g, '')
+    const field = FORM_FIELDS.find((name) => name.toLowerCase() === normalized)
+    const message = Array.isArray(value) ? value.find((item) => typeof item === 'string') : value
+    if (field && typeof message === 'string' && message.trim()) {
+      result[field] = message.trim().slice(0, MAX_SERVER_MESSAGE)
+    }
+  }
+  return result
+}
+
 function messageForStatus(status: number): string {
   if (status === 413) return 'Plik jest za duży dla serwera. Zmniejsz PDF i spróbuj ponownie.'
-  if (status === 415 || status === 422 || status === 400) {
-    return 'Serwer odrzucił plik. Upewnij się, że to prawidłowy PDF.'
+  if (status === 415) return 'Serwer odrzucił plik. Upewnij się, że to prawidłowy PDF.'
+  if (status === 400 || status === 422) {
+    return 'Serwer odrzucił dane z formularza. Sprawdź je i spróbuj ponownie.'
   }
   if (status === 429) return 'Za dużo prób w krótkim czasie. Odczekaj chwilę i spróbuj ponownie.'
   if (status >= 500) return 'Serwer ma chwilowy problem. Spróbuj ponownie za kilka minut.'

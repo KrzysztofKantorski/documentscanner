@@ -21,6 +21,7 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
   const labelId = `${inputId}-label`
   const hintId = `${inputId}-hint`
   const errorId = `${inputId}-error`
+  const fileId = `${inputId}-file`
 
   // A file dropped next to the zone would otherwise replace the whole page
   // with the browser's PDF viewer and lose everything typed into the form.
@@ -71,7 +72,9 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
     inputRef.current?.focus()
   }
 
-  const describedBy = error ? `${hintId} ${errorId}` : hintId
+  // The input's own value is cleared after each pick, so without this a screen
+  // reader would report "no file chosen" while a file is attached.
+  const describedBy = [hintId, file ? fileId : null, error ? errorId : null].filter(Boolean).join(' ')
   const zoneState = dragging ? 'dragging' : file ? 'filled' : 'empty'
 
   return (
@@ -118,7 +121,8 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
             <span className="dropzone-file-icon">
               <FileIcon />
             </span>
-            <span className="dropzone-file-meta">
+            <span className="dropzone-file-meta" id={fileId}>
+              <span className="visually-hidden">Dodany plik: </span>
               <FileName name={file.name} />
               <span className="dropzone-file-size">{formatBytes(file.size)}</span>
             </span>

@@ -95,6 +95,26 @@ describe('submitApplication against the API', () => {
     await expect(result).rejects.toThrow(message)
   })
 
+  it('maps ASP.NET validation errors onto form fields', async () => {
+    const { submitApplication } = await loadApi()
+    const result = submitApplication(payload(), { onProgress: vi.fn(), signal: new AbortController().signal })
+    FakeXhr.last.respond(400, {
+      title: 'One or more validation errors occurred.',
+      errors: { FullName: ['Name is too long.'], '$.email': ['Invalid e-mail.'], Unknown: ['ignored'] },
+    })
+    await expect(result).rejects.toMatchObject({
+      message: expect.stringMatching(/Popraw zaznaczone pola/),
+      fieldErrors: { fullName: 'Name is too long.', email: 'Invalid e-mail.' },
+    })
+  })
+
+  it('uses a generic message for a 400 without field errors', async () => {
+    const { submitApplication } = await loadApi()
+    const result = submitApplication(payload(), { onProgress: vi.fn(), signal: new AbortController().signal })
+    FakeXhr.last.respond(400, { title: 'Bad request' })
+    await expect(result).rejects.toMatchObject({ message: expect.stringMatching(/odrzucił dane/), fieldErrors: {} })
+  })
+
   it('rejects a success response without an application id', async () => {
     const { submitApplication } = await loadApi()
     const result = submitApplication(payload(), { onProgress: vi.fn(), signal: new AbortController().signal })

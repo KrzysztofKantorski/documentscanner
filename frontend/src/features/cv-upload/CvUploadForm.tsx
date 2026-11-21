@@ -45,6 +45,9 @@ const EMPTY_FIELDS: ApplicantFields = {
   consent: false,
 }
 
+// Optional link to the GDPR information notice (art. 13), set per deployment.
+const PRIVACY_POLICY_URL = import.meta.env.VITE_PRIVACY_POLICY_URL?.trim() || null
+
 // DOM order, used to send focus to the first problem after a failed submit.
 const FIELD_ORDER: FieldName[] = ['fullName', 'email', 'phone', 'profileUrl', 'cv', 'consent']
 
@@ -52,10 +55,10 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const uid = useId()
   const ids = {
     heading: `${uid}-heading`,
-    fullName: `${uid}-full-name`,
+    fullName: `${uid}-fullName`,
     email: `${uid}-email`,
     phone: `${uid}-phone`,
-    profileUrl: `${uid}-profile-url`,
+    profileUrl: `${uid}-profileUrl`,
     cv: `${uid}-cv`,
     consent: `${uid}-consent`,
     progress: `${uid}-progress`,
@@ -75,9 +78,10 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const doneHeadingRef = useRef<HTMLHeadingElement>(null)
   const failureRef = useRef<HTMLDivElement>(null)
   const submitRef = useRef<HTMLButtonElement>(null)
-  // The control that had focus (cancel button, success view) disappears when the
-  // form returns to editing, so focus is placed deliberately instead of falling to <body>.
-  const focusOnEdit = useRef<'first-field' | 'submit' | null>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  // The button that had focus is replaced whenever the phase changes, so focus is
+  // placed deliberately instead of falling back to <body>.
+  const focusOnEdit = useRef<FieldName | 'submit' | null>(null)
 
   const uploading = phase.kind === 'uploading'
 
@@ -87,14 +91,16 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   }, [])
 
   useEffect(() => {
+    if (phase.kind === 'uploading') cancelRef.current?.focus()
     if (phase.kind === 'done') doneHeadingRef.current?.focus()
     if (phase.kind === 'failed') failureRef.current?.focus()
     if (phase.kind === 'editing' && focusOnEdit.current) {
-      if (focusOnEdit.current === 'first-field') document.getElementById(ids.fullName)?.focus()
-      else submitRef.current?.focus()
+      const target = focusOnEdit.current
       focusOnEdit.current = null
+      if (target === 'submit') submitRef.current?.focus()
+      else document.getElementById(`${uid}-${target}`)?.focus()
     }
-  }, [phase.kind, ids.fullName])
+  }, [phase.kind, uid])
 
   // Leaving the page mid-upload would silently drop the application.
   useEffect(() => {
@@ -212,6 +218,14 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
         announce('Anulowano wysyłanie. Twoje dane zostały w formularzu.')
         return
       }
+      if (error instanceof UploadError && Object.keys(error.fieldErrors).length) {
+        const fieldErrors = error.fieldErrors
+        setErrors((current) => ({ ...current, ...fieldErrors }))
+        // Focus lands on the first rejected field, which reads its message aloud.
+        focusOnEdit.current = FIELD_ORDER.find((name) => fieldErrors[name]) ?? 'submit'
+        setPhase({ kind: 'editing' })
+        return
+      }
       const message =
         error instanceof UploadError ? error.message : 'Coś poszło nie tak. Spróbuj ponownie.'
       setPhase({ kind: 'failed', message })
@@ -225,7 +239,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
     setEdited({})
     setErrors({})
     setFile(null)
-    focusOnEdit.current = 'first-field'
+    focusOnEdit.current = 'fullName'
     setPhase({ kind: 'editing' })
   }
 
@@ -291,6 +305,11 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
         aria-labelledby={ids.heading}
         onSubmit={onSubmit}
       >
+        <p className="form-footnote">
+          Pola oznaczone <span aria-hidden="true">*</span>
+          <span className="visually-hidden">gwiazdką</span> są wymagane.
+        </p>
+
         <fieldset className="form-section" disabled={uploading}>
           <legend>Dane kontaktowe</legend>
 
@@ -320,7 +339,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
               E-mail <span aria-hidden="true">*</span>
             </label>
             <span id={`${ids.email}-hint`} className="field-hint">
-              Na ten adres wyślemy wynik analizy.
+              Pod tym adresem skontaktujemy się w sprawie rekrutacji.
             </span>
             <input
               id={ids.email}
@@ -425,7 +444,18 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
             </div>
             <span id={`${ids.consent}-hint`} className="field-hint checkbox-hint">
               <LockIcon />
-              Zgodę możesz wycofać w dowolnym momencie. Plik służy tylko do tej rekrutacji.
+              <span>
+                Zgodę możesz wycofać w dowolnym momencie. Plik służy tylko do tej rekrutacji.
+                {PRIVACY_POLICY_URL && (
+                  <>
+                    {' '}
+                    <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+                      Klauzula informacyjna RODO
+                      <span className="visually-hidden"> (otwiera się w nowej karcie)</span>
+                    </a>
+                  </>
+                )}
+              </span>
             </span>
             {fieldError('consent')}
           </div>
@@ -453,6 +483,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
         <div className="form-actions">
           {uploading ? (
             <button
+              ref={cancelRef}
               type="button"
               className="button button-secondary"
               onClick={() => abortRef.current?.abort()}
@@ -464,9 +495,6 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
               {phase.kind === 'failed' ? 'Spróbuj ponownie' : 'Wyślij aplikację'}
             </button>
           )}
-          <p className="form-footnote">
-            <span aria-hidden="true">*</span> pole wymagane
-          </p>
         </div>
       </form>
 

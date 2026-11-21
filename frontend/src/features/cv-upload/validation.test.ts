@@ -54,7 +54,10 @@ describe('validateField', () => {
   it('allows an empty phone but rejects letters', () => {
     expect(validateField('phone', validFields)).toBeNull()
     expect(validateField('phone', { ...validFields, phone: '+48 600 100 200' })).toBeNull()
+    expect(validateField('phone', { ...validFields, phone: '0048 600 100 200' })).toBeNull()
+    expect(validateField('phone', { ...validFields, phone: '(+48) 600-100-200' })).toBeNull()
     expect(validateField('phone', { ...validFields, phone: 'zadzwoń' })).not.toBeNull()
+    expect(validateField('phone', { ...validFields, phone: '600 100' })).not.toBeNull()
   })
 
   it.each(['javascript:alert(1)', 'data:text/html,hi', 'linkedin.com/in/anna'])(

@@ -528,3 +528,8 @@
 .panel-done .demo-note {
   margin: 0;
 }
+
+.field-hint a {
+  color: var(--color-primary);
+  text-underline-offset: 3px;
+}

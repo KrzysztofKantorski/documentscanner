@@ -23,6 +23,7 @@ npm run dev
 | ---------------- | --------- | ---- |
 | `VITE_API_URL`   | pusta     | Adres backendu, np. `https://api.example.com`. Gdy pusta, formularz działa w trybie demo: wysyłka jest symulowana i plik nie opuszcza przeglądarki. |
 | `VITE_MAX_CV_MB` | `4`       | Największy przyjmowany plik w MB. 4 MB to limit planu F0 w Azure AI Document Intelligence. Na płatnym planie S0 można podnieść. |
+| `VITE_PRIVACY_POLICY_URL` | pusta | Link do klauzuli informacyjnej RODO (art. 13), pokazywany przy zgodzie. Gdy pusty, linku nie ma. |
 
 Zmienne `VITE_*` trafiają do kodu w przeglądarce, więc nie wolno w nich trzymać kluczy ani sekretów.
 
@@ -52,6 +53,14 @@ Odpowiedź po sukcesie (`2xx`):
 ```
 
 `applicationId` to niepusty tekst o długości do 128 znaków. Inna odpowiedź jest traktowana jako błąd.
+
+Jeśli backend odrzuci konkretne pola, może odpowiedzieć tak jak domyślnie robi to ASP.NET Core (`ValidationProblemDetails`):
+
+```json
+{ "title": "One or more validation errors occurred.", "errors": { "Email": ["Ten adres już aplikował."] } }
+```
+
+Formularz dopasowuje klucze do pól (`fullName`, `email`, `phone`, `profileUrl`, `cv`, `consent`) bez względu na wielkość liter i znaki takie jak `$.`, pokazuje komunikat przy polu i przenosi na nie fokus. Nieznane klucze pomija.
 
 Kody błędów, które formularz tłumaczy na komunikaty dla użytkownika: `400`, `413`, `415`, `422`, `429` i `5xx`. Pozostałe kody pokazują ogólny komunikat z numerem kodu.
 
