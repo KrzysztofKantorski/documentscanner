@@ -1,5 +1,11 @@
 import { useEffect, useId, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
-import { isDemoMode, submitApplication, UploadError, type ApplicationReceipt } from './api'
+import {
+  APPLICATIONS_ENDPOINT,
+  isDemoMode,
+  submitApplication,
+  UploadError,
+  type ApplicationReceipt,
+} from './api'
 import { CvDropzone } from './CvDropzone'
 import { FieldError } from './FieldError'
 import { AlertIcon, CheckIcon, LockIcon } from './icons'
@@ -117,7 +123,9 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const onConsentChange = (event: ChangeEvent<HTMLInputElement>) => {
     const next = { ...fields, consent: event.target.checked }
     setFields(next)
-    setFieldError('consent', validateField('consent', next))
+    const error = validateField('consent', next)
+    if (error && !errors.consent) announce(`Błąd: ${error}`)
+    setFieldError('consent', error)
   }
 
   const onFiles = async (files: File[]) => {
@@ -258,6 +266,8 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
       <form
         className="form"
         method="post"
+        action={isDemoMode ? undefined : APPLICATIONS_ENDPOINT}
+        encType="multipart/form-data"
         noValidate
         aria-labelledby={ids.heading}
         onSubmit={onSubmit}
@@ -299,6 +309,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
               type="email"
               autoComplete="email"
               autoCapitalize="none"
+              autoCorrect="off"
               spellCheck={false}
               enterKeyHint="next"
               maxLength={254}
@@ -344,6 +355,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
                 inputMode="url"
                 autoComplete="url"
                 autoCapitalize="none"
+                autoCorrect="off"
                 spellCheck={false}
                 enterKeyHint="next"
                 maxLength={300}

@@ -23,6 +23,7 @@ export class UploadError extends Error {
 }
 
 const API_URL = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
+export const APPLICATIONS_ENDPOINT = `${API_URL}/api/applications`
 const UPLOAD_TIMEOUT_MS = 120_000
 
 /** Without VITE_API_URL the form runs in demo mode and the file never leaves the browser. */
@@ -56,7 +57,7 @@ function sendToApi(payload: ApplicationPayload, { onProgress, signal }: UploadOp
     }
 
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${API_URL}/api/applications`)
+    xhr.open('POST', APPLICATIONS_ENDPOINT)
     xhr.responseType = 'json'
     xhr.timeout = UPLOAD_TIMEOUT_MS
     xhr.setRequestHeader('Accept', 'application/json')

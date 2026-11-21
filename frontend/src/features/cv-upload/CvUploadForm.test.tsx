@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CvUploadForm } from './CvUploadForm'
@@ -45,6 +45,18 @@ describe('CvUploadForm', () => {
     await user.tab()
     expect(email.getAttribute('aria-invalid')).toBe('true')
     expect(email.getAttribute('aria-describedby')).toContain('-error')
+  })
+
+  it('announces the consent error when the box is unchecked', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    const consent = screen.getByRole('checkbox')
+
+    await user.click(consent)
+    await user.click(consent)
+
+    expect(consent.getAttribute('aria-invalid')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/Zgoda jest wymagana/))
   })
 
   it('rejects a dropped file that is not a PDF', async () => {

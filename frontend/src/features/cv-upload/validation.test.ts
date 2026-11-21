@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { formatBytes, MAX_CV_BYTES, validateApplicant, validateCvFile, validateField } from './validation'
 
 const pdf = (body = '%PDF-1.7\n...', name = 'cv.pdf', type = 'application/pdf') =>
@@ -75,5 +75,28 @@ describe('formatBytes', () => {
     expect(formatBytes(2048)).toBe('2 KB')
     expect(formatBytes(4 * 1024 * 1024)).toBe('4 MB')
     expect(formatBytes(1.5 * 1024 * 1024)).toBe('1,5 MB')
+  })
+})
+
+describe('MAX_CV_BYTES', () => {
+  const load = async (value: string | undefined) => {
+    vi.resetModules()
+    vi.unstubAllEnvs()
+    if (value !== undefined) vi.stubEnv('VITE_MAX_CV_MB', value)
+    return (await import('./validation')).MAX_CV_BYTES
+  }
+
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('defaults to the 4 MB free tier limit', async () => {
+    expect(await load(undefined)).toBe(4 * 1024 * 1024)
+  })
+
+  it('follows VITE_MAX_CV_MB', async () => {
+    expect(await load('20')).toBe(20 * 1024 * 1024)
+  })
+
+  it.each(['abc', '0', '-5'])('falls back to 4 MB for invalid value %s', async (value) => {
+    expect(await load(value)).toBe(4 * 1024 * 1024)
   })
 })

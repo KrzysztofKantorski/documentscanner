@@ -1,6 +1,9 @@
 // Azure AI Document Intelligence on the free tier (F0) rejects files over 4 MB,
-// so the form stops them before they are sent.
-export const MAX_CV_BYTES = 4 * 1024 * 1024
+// so that is the default. The paid tier accepts more: raise VITE_MAX_CV_MB.
+const DEFAULT_MAX_CV_MB = 4
+const configuredMb = Number(import.meta.env.VITE_MAX_CV_MB)
+export const MAX_CV_BYTES =
+  (Number.isFinite(configuredMb) && configuredMb > 0 ? configuredMb : DEFAULT_MAX_CV_MB) * 1024 * 1024
 
 const PDF_SIGNATURE = '%PDF-'
 
