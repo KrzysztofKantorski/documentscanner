@@ -74,6 +74,10 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const announceTimer = useRef<number | undefined>(undefined)
   const doneHeadingRef = useRef<HTMLHeadingElement>(null)
   const failureRef = useRef<HTMLDivElement>(null)
+  const submitRef = useRef<HTMLButtonElement>(null)
+  // The control that had focus (cancel button, success view) disappears when the
+  // form returns to editing, so focus is placed deliberately instead of falling to <body>.
+  const focusOnEdit = useRef<'first-field' | 'submit' | null>(null)
 
   const uploading = phase.kind === 'uploading'
 
@@ -85,7 +89,20 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   useEffect(() => {
     if (phase.kind === 'done') doneHeadingRef.current?.focus()
     if (phase.kind === 'failed') failureRef.current?.focus()
-  }, [phase.kind])
+    if (phase.kind === 'editing' && focusOnEdit.current) {
+      if (focusOnEdit.current === 'first-field') document.getElementById(ids.fullName)?.focus()
+      else submitRef.current?.focus()
+      focusOnEdit.current = null
+    }
+  }, [phase.kind, ids.fullName])
+
+  // Leaving the page mid-upload would silently drop the application.
+  useEffect(() => {
+    if (!uploading) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [uploading])
 
   // One polite region for the whole form. The short delay lets a screen reader
   // finish reading the field that just received focus before the message.
@@ -190,6 +207,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
       onSubmitted?.(receipt)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
+        focusOnEdit.current = 'submit'
         setPhase({ kind: 'editing' })
         announce('Anulowano wysyłanie. Twoje dane zostały w formularzu.')
         return
@@ -207,6 +225,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
     setEdited({})
     setErrors({})
     setFile(null)
+    focusOnEdit.current = 'first-field'
     setPhase({ kind: 'editing' })
   }
 
@@ -230,7 +249,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
           </dd>
         </dl>
         {phase.receipt.demo && (
-          <p className="demo-note">Tryb demo: plik nie został wysłany na serwer.</p>
+          <p className="demo-note">Wersja demonstracyjna: plik nie został wysłany na serwer.</p>
         )}
         <button type="button" className="button button-secondary" onClick={reset}>
           Wyślij kolejne CV
@@ -259,7 +278,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
 
       {isDemoMode && (
         <p className="demo-note">
-          Tryb demo: brak adresu API (VITE_API_URL), więc wysyłanie jest symulowane w przeglądarce.
+          Wersja demonstracyjna: wysyłka jest tylko symulowana, a CV nie opuszcza Twojej przeglądarki.
         </p>
       )}
 
@@ -441,7 +460,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
               Anuluj wysyłanie
             </button>
           ) : (
-            <button type="submit" className="button button-primary">
+            <button ref={submitRef} type="submit" className="button button-primary">
               {phase.kind === 'failed' ? 'Spróbuj ponownie' : 'Wyślij aplikację'}
             </button>
           )}

@@ -66,6 +66,16 @@ Walidacja w przeglądarce służy tylko wygodzie użytkownika i łatwo ją obej�
 - pozwolić w CORS tylko na adres frontendu;
 - nie logować treści CV ani danych osobowych.
 
+## Hosting i nagłówki bezpieczeństwa
+
+Frontend trafia na Azure Static Web Apps (`infrastructure/main.tf`). Plik `public/staticwebapp.config.json` ustawia:
+
+- `Content-Security-Policy`: skrypty, style i obrazy tylko z własnej domeny, połączenia i wysyłka formularza tylko do backendu `documentscanner-backend-prod.azurewebsites.net`, zakaz osadzania w ramkach i wymuszone Trusted Types;
+- `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` i `Cross-Origin-Opener-Policy`;
+- przekierowanie nieznanych ścieżek na `index.html`, na wypadek gdyby aplikacja dostała routing.
+
+Jeśli zmieni się adres backendu, trzeba go poprawić w `connect-src` i `form-action`, bo inaczej przeglądarka zablokuje wysyłkę.
+
 ## Struktura
 
 ```

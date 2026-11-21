@@ -91,6 +91,26 @@ describe('CvUploadForm', () => {
     const heading = await screen.findByRole('heading', { name: 'Aplikacja wysłana' }, { timeout: 4000 })
     expect(document.activeElement).toBe(heading)
     expect(onSubmitted).toHaveBeenCalledWith(expect.objectContaining({ demo: true }))
+
+    await user.click(screen.getByRole('button', { name: 'Wyślij kolejne CV' }))
+    const name = screen.getByLabelText(/Imię i nazwisko/) as HTMLInputElement
+    expect(name.value).toBe('')
+    expect(document.activeElement).toBe(name)
+  })
+
+  it('asks before leaving the page during an upload', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    await fillValidForm(user)
+
+    const idle = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(idle)
+    expect(idle.defaultPrevented).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Wyślij aplikację' }))
+    const busy = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(busy)
+    expect(busy.defaultPrevented).toBe(true)
   })
 
   it('cancels an upload and keeps what the user typed', async () => {
@@ -104,5 +124,6 @@ describe('CvUploadForm', () => {
     expect(screen.queryByRole('progressbar')).toBeNull()
     expect((screen.getByLabelText(/Imię i nazwisko/) as HTMLInputElement).value).toBe('Anna Nowak')
     expect(screen.getByText('Anna_Nowak_CV')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Wyślij aplikację' }))
   })
 })
