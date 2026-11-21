@@ -13,32 +13,46 @@ const validFields = {
 }
 
 describe('validateCvFile', () => {
+  const errorOf = async (file: File) => (await validateCvFile(file)).error
+
   it('accepts a real PDF', async () => {
-    expect(await validateCvFile(pdf())).toBeNull()
+    expect(await validateCvFile(pdf())).toEqual({ error: null, warning: null })
   })
 
   it('rejects a file that is not a PDF by name or type', async () => {
-    expect(await validateCvFile(new File(['hello'], 'cv.docx', { type: 'application/msword' }))).toMatch(
-      /formacie PDF/,
-    )
+    expect(await errorOf(new File(['hello'], 'cv.docx', { type: 'application/msword' }))).toMatch(/formacie PDF/)
   })
 
   it('rejects a renamed file without the PDF signature', async () => {
-    expect(await validateCvFile(pdf('MZ\x90\x00 not a pdf'))).toMatch(/nie jest prawidłowym PDF/)
-  })
-
-  it('rejects a password-protected PDF', async () => {
-    const locked = pdf('%PDF-1.7\n1 0 obj\ntrailer << /Root 1 0 R /Encrypt 5 0 R >>\n%%EOF')
-    expect(await validateCvFile(locked)).toMatch(/zabezpieczony hasłem/)
+    expect(await errorOf(pdf('MZ\x90\x00 not a pdf'))).toMatch(/nie jest prawidłowym PDF/)
   })
 
   it('rejects an empty file', async () => {
-    expect(await validateCvFile(pdf(''))).toMatch(/pusty/)
+    expect(await errorOf(pdf(''))).toMatch(/pusty/)
   })
 
-  it('rejects a file over the size limit', async () => {
-    const big = pdf('%PDF-' + 'a'.repeat(MAX_CV_BYTES))
-    expect(await validateCvFile(big)).toMatch(/Maksymalny rozmiar/)
+  it('never reports a file just over the limit as the limit itself', async () => {
+    const justOver = pdf('%PDF-' + 'a'.repeat(MAX_CV_BYTES - 4))
+    expect(justOver.size).toBe(MAX_CV_BYTES + 1)
+    expect(await errorOf(justOver)).toBe('Plik ma 4,1 MB. Maksymalny rozmiar to 4 MB.')
+  })
+
+  it('accepts an encrypted PDF but warns about passwords', async () => {
+    const locked = pdf('%PDF-1.7\n1 0 obj\ntrailer << /Root 1 0 R /Encrypt 5 0 R >>\n%%EOF')
+    const result = await validateCvFile(locked)
+    expect(result.error).toBeNull()
+    expect(result.warning).toMatch(/zaszyfrowany/)
+  })
+
+  it('does not warn when "/Encrypt" is only text in the document', async () => {
+    const text = pdf('%PDF-1.7\nBT (Skills: /Encrypt keys, AES) Tj ET\n%%EOF')
+    expect((await validateCvFile(text)).warning).toBeNull()
+  })
+
+  it('reports a file that cannot be read as a thrown error', async () => {
+    const broken = pdf()
+    broken.arrayBuffer = () => Promise.reject(new DOMException('gone', 'NotReadableError'))
+    await expect(validateCvFile(broken)).rejects.toThrow()
   })
 })
 

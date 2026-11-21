@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { submitApplication, UploadError } from './api'
@@ -17,8 +17,7 @@ afterEach(() => {
   vi.mocked(submitApplication).mockReset()
 })
 
-async function submitValidForm() {
-  const user = userEvent.setup()
+async function submitValidForm(user = userEvent.setup()) {
   render(<CvUploadForm offer={offer} />)
   await user.type(screen.getByLabelText(/Imię i nazwisko/), 'Anna Nowak')
   await user.type(screen.getByLabelText(/E-mail/), 'anna@example.com')
@@ -69,5 +68,38 @@ describe('CvUploadForm with a real API', () => {
       consent: true,
     })
     expect(screen.queryByText(/Wersja demonstracyjna/)).toBeNull()
+  })
+
+  it('stops offering cancel once every byte has been sent', async () => {
+    vi.mocked(submitApplication).mockImplementation((_payload, { onProgress }) => {
+      onProgress(1)
+      return new Promise(() => {})
+    })
+
+    await submitValidForm()
+
+    const cancel = await screen.findByRole('button', { name: 'Anuluj wysyłanie' })
+    expect(cancel.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(cancel)
+    expect(screen.getByText('Przetwarzamy CV…')).toBeTruthy()
+    expect(screen.getByRole('progressbar').hasAttribute('value')).toBe(false)
+  })
+
+  it('reuses the idempotency key on retry and replaces it after an edit', async () => {
+    vi.mocked(submitApplication).mockRejectedValue(new UploadError('Serwer ma chwilowy problem.'))
+    const user = userEvent.setup()
+
+    await submitValidForm(user)
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: 'Spróbuj ponownie' }))
+    await act(() => Promise.resolve())
+    await user.type(screen.getByLabelText(/Telefon/), '600100200')
+    await user.click(screen.getByRole('button', { name: 'Spróbuj ponownie' }))
+    await act(() => Promise.resolve())
+
+    const keys = vi.mocked(submitApplication).mock.calls.map(([, options]) => options.idempotencyKey)
+    expect(keys).toHaveLength(3)
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
   })
 })

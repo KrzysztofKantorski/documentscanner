@@ -16,6 +16,7 @@ import {
   type ApplicantFields,
   type FieldErrors,
   type FieldName,
+  type FileCheck,
 } from './validation'
 import './cv-upload.css'
 
@@ -33,7 +34,9 @@ type Props = {
 
 type Phase =
   | { kind: 'editing' }
-  | { kind: 'uploading'; progress: number }
+  // `sent`: every byte is out and the server is working. Cancelling then could
+  // leave a stored application behind, so the cancel button stops working.
+  | { kind: 'uploading'; progress: number; sent: boolean }
   | { kind: 'failed'; message: string }
   | { kind: 'done'; receipt: ApplicationReceipt }
 
@@ -68,6 +71,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const [edited, setEdited] = useState<Partial<Record<FieldName, boolean>>>({})
   const [errors, setErrors] = useState<FieldErrors>({})
   const [file, setFile] = useState<File | null>(null)
+  const [fileWarning, setFileWarning] = useState<string | null>(null)
   const [checkingFile, setCheckingFile] = useState(false)
   const [phase, setPhase] = useState<Phase>({ kind: 'editing' })
   const [announcement, setAnnouncement] = useState('')
@@ -82,12 +86,19 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   // The button that had focus is replaced whenever the phase changes, so focus is
   // placed deliberately instead of falling back to <body>.
   const focusOnEdit = useRef<FieldName | 'submit' | null>(null)
+  // One key per version of the application: retries reuse it, any edit drops it.
+  const idempotencyKey = useRef<string | null>(null)
+  const unmounted = useRef(false)
 
   const uploading = phase.kind === 'uploading'
 
-  useEffect(() => () => {
-    abortRef.current?.abort()
-    window.clearTimeout(announceTimer.current)
+  useEffect(() => {
+    unmounted.current = false
+    return () => {
+      unmounted.current = true
+      abortRef.current?.abort()
+      window.clearTimeout(announceTimer.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -113,6 +124,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   // One polite region for the whole form. The short delay lets a screen reader
   // finish reading the field that just received focus before the message.
   const announce = (message: string) => {
+    if (unmounted.current) return
     window.clearTimeout(announceTimer.current)
     setAnnouncement('')
     announceTimer.current = window.setTimeout(() => setAnnouncement(message), 500)
@@ -131,6 +143,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
     const name = event.target.name as keyof ApplicantFields
     const next = { ...fields, [name]: event.target.value }
     setFields(next)
+    idempotencyKey.current = null
     setEdited((current) => ({ ...current, [name]: true }))
     // While typing, errors may only disappear; new ones wait for blur or submit.
     if (errors[name] && !validateField(name, next)) setFieldError(name, null)
@@ -146,43 +159,67 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   const onConsentChange = (event: ChangeEvent<HTMLInputElement>) => {
     const next = { ...fields, consent: event.target.checked }
     setFields(next)
+    idempotencyKey.current = null
     const error = validateField('consent', next)
     if (error && !errors.consent) announce(`Błąd: ${error}`)
     setFieldError('consent', error)
   }
 
   const onFiles = async (files: File[]) => {
+    // Some drag sources announce files but deliver none.
+    if (files.length === 0) return
+    // A newer pick always wins: results of older checks are dropped below.
+    const check = ++fileCheckRef.current
+    idempotencyKey.current = null
+    setFile(null)
+    setFileWarning(null)
+
     if (files.length > 1) {
+      setCheckingFile(false)
       setFieldError('cv', 'Dodaj tylko jeden plik z CV.')
       announce('Błąd: Dodaj tylko jeden plik z CV.')
       return
     }
+
     const candidate = files[0]
-    const check = ++fileCheckRef.current
+    setFieldError('cv', null)
     setCheckingFile(true)
-    const error = await validateCvFile(candidate)
+    let result: FileCheck
+    try {
+      result = await validateCvFile(candidate)
+    } catch {
+      // The file was moved, deleted or is a cloud placeholder the browser cannot read.
+      result = { error: 'Nie udało się odczytać pliku. Wybierz go ponownie.', warning: null }
+    }
     if (check !== fileCheckRef.current) return
+
     setCheckingFile(false)
-    setFieldError('cv', error)
-    if (error) {
-      setFile(null)
-      announce(`Błąd: ${error}`)
+    if (result.error) {
+      setFieldError('cv', result.error)
+      announce(`Błąd: ${result.error}`)
       return
     }
     setFile(candidate)
-    announce(`Dodano plik ${candidate.name}.`)
+    setFileWarning(result.warning)
+    announce(`Dodano plik ${candidate.name}.${result.warning ? ` Uwaga: ${result.warning}` : ''}`)
   }
 
   const onClearFile = () => {
     fileCheckRef.current += 1
+    idempotencyKey.current = null
     setCheckingFile(false)
     setFile(null)
+    setFileWarning(null)
     announce('Usunięto plik.')
   }
 
   const onSubmit = async (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (uploading) return
+    if (checkingFile) {
+      announce('Poczekaj, aż skończę sprawdzać plik.')
+      return
+    }
 
     const nextErrors = validateApplicant(fields)
     if (!file) nextErrors.cv = errors.cv ?? 'Dodaj swoje CV w formacie PDF.'
@@ -197,22 +234,32 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
 
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({ kind: 'uploading', progress: 0 })
+    idempotencyKey.current ??= crypto.randomUUID()
+    setPhase({ kind: 'uploading', progress: 0, sent: false })
     announce('Wysyłam CV.')
 
+    let announcedSent = false
     try {
       const receipt = await submitApplication(
         { ...fields, offerId: offer.id, cv: file! },
         {
+          idempotencyKey: idempotencyKey.current,
           signal: controller.signal,
-          onProgress: (fraction) =>
-            setPhase({ kind: 'uploading', progress: Math.round(fraction * 100) }),
+          onProgress: (fraction) => {
+            const sent = fraction >= 1
+            setPhase({ kind: 'uploading', progress: Math.round(fraction * 100), sent })
+            if (sent && !announcedSent) {
+              announcedSent = true
+              announce('Plik wysłany. Przetwarzamy CV.')
+            }
+          },
         },
       )
       setPhase({ kind: 'done', receipt })
       onSubmitted?.(receipt)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
+        if (unmounted.current) return
         focusOnEdit.current = 'submit'
         setPhase({ kind: 'editing' })
         announce('Anulowano wysyłanie. Twoje dane zostały w formularzu.')
@@ -235,10 +282,16 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
   }
 
   const reset = () => {
+    fileCheckRef.current += 1
+    idempotencyKey.current = null
+    window.clearTimeout(announceTimer.current)
+    setAnnouncement('')
     setFields(EMPTY_FIELDS)
     setEdited({})
     setErrors({})
     setFile(null)
+    setFileWarning(null)
+    setCheckingFile(false)
     focusOnEdit.current = 'fullName'
     setPhase({ kind: 'editing' })
   }
@@ -252,19 +305,23 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
         <h2 id={ids.heading} ref={doneHeadingRef} tabIndex={-1}>
           Aplikacja wysłana
         </h2>
-        <p>
-          Twoje CV na stanowisko <strong>{offer.title}</strong> w {offer.company} trafiło do
-          analizy. Wynik dopasowania pojawi się, gdy system przeczyta dokument.
-        </p>
+        {phase.receipt.demo ? (
+          <p>
+            Tak wyglądałoby potwierdzenie aplikacji na stanowisko <strong>{offer.title}</strong> w{' '}
+            {offer.company}. W wersji demonstracyjnej CV nie zostało nigdzie wysłane.
+          </p>
+        ) : (
+          <p>
+            Twoje CV na stanowisko <strong>{offer.title}</strong> w {offer.company} zostało przyjęte
+            i czeka na analizę. Zachowaj numer aplikacji, gdyby trzeba było się do niej odwołać.
+          </p>
+        )}
         <dl className="receipt">
           <dt>Numer aplikacji</dt>
           <dd>
             <code>{phase.receipt.applicationId}</code>
           </dd>
         </dl>
-        {phase.receipt.demo && (
-          <p className="demo-note">Wersja demonstracyjna: plik nie został wysłany na serwer.</p>
-        )}
         <button type="button" className="button button-secondary" onClick={reset}>
           Wyślij kolejne CV
         </button>
@@ -415,6 +472,7 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
             inputId={ids.cv}
             file={file}
             error={errors.cv ?? null}
+            warning={fileWarning}
             checking={checkingFile}
             disabled={uploading}
             onFiles={onFiles}
@@ -474,22 +532,45 @@ export function CvUploadForm({ offer, onSubmitted }: Props) {
         {uploading && (
           <div className="upload-progress">
             <label htmlFor={ids.progress}>
-              Wysyłanie CV… <span className="tabular">{phase.progress}%</span>
+              {phase.sent ? (
+                'Przetwarzamy CV…'
+              ) : (
+                <>
+                  Wysyłanie CV… <span className="tabular">{phase.progress}%</span>
+                </>
+              )}
             </label>
-            <progress id={ids.progress} max={100} value={phase.progress} />
+            {/* No value while the server works: there is no progress to report. */}
+            {phase.sent ? (
+              <progress id={ids.progress} max={100} />
+            ) : (
+              <progress id={ids.progress} max={100} value={phase.progress} />
+            )}
           </div>
         )}
 
         <div className="form-actions">
           {uploading ? (
-            <button
-              ref={cancelRef}
-              type="button"
-              className="button button-secondary"
-              onClick={() => abortRef.current?.abort()}
-            >
-              Anuluj wysyłanie
-            </button>
+            <>
+              <button
+                ref={cancelRef}
+                type="button"
+                className="button button-secondary"
+                // aria-disabled instead of disabled keeps keyboard focus on the button.
+                aria-disabled={phase.sent || undefined}
+                aria-describedby={phase.sent ? `${ids.progress}-sent` : undefined}
+                onClick={() => {
+                  if (!phase.sent) abortRef.current?.abort()
+                }}
+              >
+                Anuluj wysyłanie
+              </button>
+              {phase.sent && (
+                <span id={`${ids.progress}-sent`} className="form-footnote">
+                  Plik już dotarł, więc wysyłki nie można anulować.
+                </span>
+              )}
+            </>
           ) : (
             <button ref={submitRef} type="submit" className="button button-primary">
               {phase.kind === 'failed' ? 'Spróbuj ponownie' : 'Wyślij aplikację'}

@@ -16,6 +16,8 @@ export type ApplicationReceipt = {
 }
 
 export type UploadOptions = {
+  /** Same key for every retry of one application, so the backend can drop duplicates. */
+  idempotencyKey: string
   onProgress: (fraction: number) => void
   signal: AbortSignal
 }
@@ -58,7 +60,10 @@ function toFormData(payload: ApplicationPayload): FormData {
 }
 
 // fetch() cannot report upload progress, so the request goes through XHR.
-function sendToApi(payload: ApplicationPayload, { onProgress, signal }: UploadOptions) {
+function sendToApi(
+  payload: ApplicationPayload,
+  { idempotencyKey, onProgress, signal }: UploadOptions,
+) {
   return new Promise<ApplicationReceipt>((resolve, reject) => {
     if (signal.aborted) {
       reject(abortError())
@@ -70,6 +75,7 @@ function sendToApi(payload: ApplicationPayload, { onProgress, signal }: UploadOp
     xhr.responseType = 'json'
     xhr.timeout = UPLOAD_TIMEOUT_MS
     xhr.setRequestHeader('Accept', 'application/json')
+    xhr.setRequestHeader('Idempotency-Key', idempotencyKey)
 
     xhr.upload.addEventListener('progress', (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total)
@@ -96,7 +102,11 @@ function sendToApi(payload: ApplicationPayload, { onProgress, signal }: UploadOp
       reject(new UploadError('Brak połączenia z serwerem. Sprawdź internet i spróbuj ponownie.')),
     )
     xhr.addEventListener('timeout', () =>
-      reject(new UploadError('Wysyłanie trwało zbyt długo. Spróbuj ponownie.')),
+      reject(
+        new UploadError(
+          'Serwer nie odpowiedział na czas. Spróbuj ponownie – jeśli aplikacja już dotarła, nie zostanie zapisana drugi raz.',
+        ),
+      ),
     )
     xhr.addEventListener('abort', () => reject(abortError()))
 

@@ -34,7 +34,11 @@ Formularz wysyła jedno żądanie:
 ```
 POST {VITE_API_URL}/api/applications
 Content-Type: multipart/form-data
+Accept: application/json
+Idempotency-Key: <UUID>
 ```
+
+`Idempotency-Key` jest taki sam przy każdej ponownej próbie wysłania tych samych danych i zmienia się po edycji formularza. Jeśli backend dostanie drugi raz ten sam klucz (np. po przekroczeniu czasu albo przy ponownej próbie), powinien zwrócić pierwotny `applicationId` zamiast tworzyć drugą aplikację.
 
 | Pole         | Typ      | Wymagane | Uwagi |
 | ------------ | -------- | -------- | ----- |
@@ -73,7 +77,8 @@ Walidacja w przeglądarce służy tylko wygodzie użytkownika i łatwo ją obej�
 - odrzucić PDF zabezpieczony hasłem, bo Document Intelligence go nie odczyta;
 - przyjąć `profileUrl` tylko ze schematem `http` lub `https`, zanim rekruter zobaczy go jako link;
 - odrzucić żądanie bez `consent=true`;
-- pozwolić w CORS tylko na adres frontendu;
+- pozwolić w CORS tylko na adres frontendu i odpowiadać na preflight `OPTIONS /api/applications` (przeglądarka go wysyła, bo żądanie ma nagłówek `Idempotency-Key` i śledzi postęp wysyłki), z `Access-Control-Allow-Headers: Idempotency-Key`;
+- traktować powtórzony `Idempotency-Key` jako tę samą aplikację;
 - nie logować treści CV ani danych osobowych.
 
 ## Hosting i nagłówki bezpieczeństwa
@@ -90,9 +95,11 @@ Jeśli zmieni się adres backendu, trzeba go poprawić w `connect-src` i `form-a
 
 ```
 src/features/cv-upload/
-  CvUploadForm.tsx   formularz i stany: edycja, wysyłanie, błąd, sukces
+  CvUploadForm.tsx   formularz i stany: edycja, wysyłanie, przetwarzanie, błąd, sukces
   CvDropzone.tsx     strefa upuszczania pliku
-  api.ts             wysyłka przez XHR (postęp, anulowanie) i tryb demo
+  FieldError.tsx     komunikat błędu pod polem
+  icons.tsx          ikony SVG
+  api.ts             wysyłka przez XHR (postęp, anulowanie, klucz idempotencji) i tryb demo
   validation.ts      walidacja pól i pliku PDF
 ```
 

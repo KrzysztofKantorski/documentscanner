@@ -72,6 +72,49 @@ describe('CvUploadForm', () => {
     expect(described).toMatch(/Dodany plik: Anna_Nowak_CV\.pdf/)
   })
 
+  it('shows a read error instead of hanging when the file cannot be read', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    const broken = pdf()
+    broken.arrayBuffer = () => Promise.reject(new DOMException('gone', 'NotReadableError'))
+
+    await user.upload(screen.getByLabelText(/CV w formacie PDF/), broken)
+
+    expect(await screen.findByText(/Nie udało się odczytać pliku/)).toBeTruthy()
+    expect(screen.queryByText('Sprawdzam plik…')).toBeNull()
+  })
+
+  it('ignores a drop that carries no files', async () => {
+    render(<CvUploadForm offer={offer} />)
+    fireEvent.drop(document.querySelector('.dropzone')!, { dataTransfer: { files: [], types: ['Files'] } })
+    await act(() => Promise.resolve())
+    expect(document.querySelector('.field-error')).toBeNull()
+  })
+
+  it('drops the attached file when several files are dropped', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    await user.upload(screen.getByLabelText(/CV w formacie PDF/), pdf())
+    await screen.findByText('Anna_Nowak_CV')
+
+    fireEvent.drop(document.querySelector('.dropzone')!, { dataTransfer: { files: [pdf(), pdf()], types: ['Files'] } })
+
+    expect(await screen.findByText('Dodaj tylko jeden plik z CV.')).toBeTruthy()
+    expect(screen.queryByText('Anna_Nowak_CV')).toBeNull()
+  })
+
+  it('keeps an encrypted PDF but shows a warning next to it', async () => {
+    const user = userEvent.setup()
+    render(<CvUploadForm offer={offer} />)
+    const locked = new File(['%PDF-1.7 trailer << /Encrypt 5 0 R >>'], 'locked.pdf', { type: 'application/pdf' })
+
+    await user.upload(screen.getByLabelText(/CV w formacie PDF/), locked)
+
+    expect(await screen.findByText(/jest zaszyfrowany/)).toBeTruthy()
+    expect(screen.getByText('locked')).toBeTruthy()
+    expect(screen.getByLabelText(/CV w formacie PDF/).getAttribute('aria-invalid')).toBe('false')
+  })
+
   it('rejects a dropped file that is not a PDF', async () => {
     render(<CvUploadForm offer={offer} />)
     const zone = document.querySelector('.dropzone')!
@@ -110,6 +153,8 @@ describe('CvUploadForm', () => {
     const name = screen.getByLabelText(/Imię i nazwisko/) as HTMLInputElement
     expect(name.value).toBe('')
     expect(document.activeElement).toBe(name)
+    expect(screen.getByRole('status').textContent).toBe('')
+    expect(screen.queryByText('Anna_Nowak_CV')).toBeNull()
   })
 
   it('asks before leaving the page during an upload', async () => {

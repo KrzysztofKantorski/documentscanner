@@ -25,30 +25,55 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, '').replace('.', ',')} MB`
 }
 
+export type FileCheck = {
+  /** Blocks the file. */
+  error: string | null
+  /** Shown next to an accepted file. */
+  warning: string | null
+}
+
+// The encryption dictionary is referenced from the trailer as `/Encrypt 5 0 R`
+// or written inline as `/Encrypt << ... >>`.
+const ENCRYPT_ENTRY = /\/Encrypt\s*(?:\d+\s+\d+\s+R|<<)/
+
 /**
- * Checks the file the way the backend will: by its first bytes, not by the
- * name or the MIME type the browser guessed. Returns an error message or null.
+ * Checks the file the way the backend will: by its bytes, not by the name or
+ * the MIME type the browser guessed.
  */
-export async function validateCvFile(file: File): Promise<string | null> {
+export async function validateCvFile(file: File): Promise<FileCheck> {
+  const reject = (error: string): FileCheck => ({ error, warning: null })
+
   const looksLikePdf =
     file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-  if (!looksLikePdf) return 'Wybierz plik w formacie PDF.'
-  if (file.size === 0) return 'Ten plik jest pusty. Wybierz inny PDF.'
+  if (!looksLikePdf) return reject('Wybierz plik w formacie PDF.')
+  if (file.size === 0) return reject('Ten plik jest pusty. Wybierz inny PDF.')
   if (file.size > MAX_CV_BYTES) {
-    return `Plik ma ${formatBytes(file.size)}. Maksymalny rozmiar to ${formatBytes(MAX_CV_BYTES)}.`
+    return reject(
+      `Plik ma ${formatBytesUp(file.size)}. Maksymalny rozmiar to ${formatBytes(MAX_CV_BYTES)}.`,
+    )
   }
 
   // latin1 maps every byte to one character, so PDF keywords can be searched as text.
   const content = new TextDecoder('latin1').decode(await file.arrayBuffer())
   if (!content.startsWith(PDF_SIGNATURE)) {
-    return 'Ten plik nie jest prawidłowym PDF-em. Wyeksportuj CV do PDF i spróbuj ponownie.'
+    return reject('Ten plik nie jest prawidłowym PDF-em. Wyeksportuj CV do PDF i spróbuj ponownie.')
   }
-  // Document Intelligence cannot read password-protected PDFs, and the error
-  // would otherwise surface only after the upload.
-  if (content.includes('/Encrypt')) {
-    return 'Ten PDF jest zabezpieczony hasłem. Zapisz CV bez hasła i spróbuj ponownie.'
+  // An encrypted PDF may still open without a password (permissions only), so
+  // this is a warning: only a file that needs a password to open is unreadable.
+  if (ENCRYPT_ENTRY.test(content)) {
+    return {
+      error: null,
+      warning:
+        'Ten PDF jest zaszyfrowany. Jeśli otwiera się tylko po wpisaniu hasła, nie odczytamy go – zapisz CV ponownie jako zwykły PDF.',
+    }
   }
-  return null
+  return { error: null, warning: null }
+}
+
+// Rounds up, so a file just over the limit never reads as "4 MB".
+function formatBytesUp(bytes: number): string {
+  const mb = Math.ceil((bytes / (1024 * 1024)) * 10) / 10
+  return `${mb.toFixed(1).replace(/\.0$/, '').replace('.', ',')} MB`
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/

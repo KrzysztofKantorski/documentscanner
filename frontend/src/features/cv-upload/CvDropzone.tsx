@@ -1,19 +1,29 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { FieldError } from './FieldError'
-import { FileIcon, UploadIcon } from './icons'
+import { AlertIcon, FileIcon, UploadIcon } from './icons'
 import { formatBytes, MAX_CV_BYTES } from './validation'
 
 type Props = {
   inputId: string
   file: File | null
   error: string | null
+  warning: string | null
   checking: boolean
   disabled: boolean
   onFiles: (files: File[]) => void
   onClear: () => void
 }
 
-export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, onClear }: Props) {
+export function CvDropzone({
+  inputId,
+  file,
+  error,
+  warning,
+  checking,
+  disabled,
+  onFiles,
+  onClear,
+}: Props) {
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -22,6 +32,7 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
   const hintId = `${inputId}-hint`
   const errorId = `${inputId}-error`
   const fileId = `${inputId}-file`
+  const warningId = `${inputId}-warning`
 
   // A file dropped next to the zone would otherwise replace the whole page
   // with the browser's PDF viewer and lose everything typed into the form.
@@ -74,7 +85,9 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
 
   // The input's own value is cleared after each pick, so without this a screen
   // reader would report "no file chosen" while a file is attached.
-  const describedBy = [hintId, file ? fileId : null, error ? errorId : null].filter(Boolean).join(' ')
+  const describedBy = [hintId, file ? fileId : null, warning ? warningId : null, error ? errorId : null]
+    .filter(Boolean)
+    .join(' ')
   const zoneState = dragging ? 'dragging' : file ? 'filled' : 'empty'
 
   return (
@@ -162,6 +175,15 @@ export function CvDropzone({ inputId, file, error, checking, disabled, onFiles, 
         )}
       </div>
 
+      {warning && (
+        <span id={warningId} className="field-warning">
+          <AlertIcon />
+          <span>
+            <span className="visually-hidden">Uwaga: </span>
+            {warning}
+          </span>
+        </span>
+      )}
       {error && <FieldError id={errorId} message={error} />}
     </div>
   )
