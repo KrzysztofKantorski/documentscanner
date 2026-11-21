@@ -1,0 +1,143 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+type Listener = () => void
+
+class FakeXhr {
+  static last: FakeXhr
+  status = 0
+  response: unknown = null
+  responseType = ''
+  timeout = 0
+  method = ''
+  url = ''
+  body: FormData | null = null
+  aborted = false
+  upload = { addEventListener: vi.fn() }
+  private listeners: Record<string, Listener[]> = {}
+
+  constructor() {
+    FakeXhr.last = this
+  }
+  open(method: string, url: string) {
+    this.method = method
+    this.url = url
+  }
+  headers: Record<string, string> = {}
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value
+  }
+  addEventListener(type: string, listener: Listener) {
+    ;(this.listeners[type] ??= []).push(listener)
+  }
+  send(body: FormData) {
+    this.body = body
+  }
+  abort() {
+    this.aborted = true
+    this.fire('abort')
+  }
+  respond(status: number, response: unknown) {
+    this.status = status
+    this.response = response
+    this.fire('load')
+  }
+  fire(type: string) {
+    this.listeners[type]?.forEach((listener) => listener())
+    if (type !== 'progress') this.listeners.loadend?.forEach((listener) => listener())
+  }
+}
+
+const payload = () => ({
+  offerId: 'offer-1',
+  fullName: ' Anna Nowak ',
+  email: 'anna@example.com',
+  phone: '',
+  profileUrl: '',
+  consent: true,
+  cv: new File(['%PDF-1.7'], 'cv.pdf', { type: 'application/pdf' }),
+})
+
+const options = (signal = new AbortController().signal) => ({
+  idempotencyKey: 'key-1',
+  onProgress: vi.fn(),
+  signal,
+})
+
+async function loadApi() {
+  vi.resetModules()
+  vi.stubEnv('VITE_API_URL', 'https://api.example.test/')
+  vi.stubGlobal('XMLHttpRequest', FakeXhr)
+  return import('./api')
+}
+
+beforeEach(() => vi.unstubAllEnvs())
+afterEach(() => vi.unstubAllGlobals())
+
+describe('submitApplication against the API', () => {
+  it('posts multipart data and resolves with the application id', async () => {
+    const { submitApplication, isDemoMode } = await loadApi()
+    expect(isDemoMode).toBe(false)
+
+    const result = submitApplication(payload(), options())
+    const xhr = FakeXhr.last
+    expect(xhr.method).toBe('POST')
+    expect(xhr.url).toBe('https://api.example.test/api/applications')
+    expect(xhr.headers['Idempotency-Key']).toBe('key-1')
+    expect(xhr.body?.get('fullName')).toBe('Anna Nowak')
+    expect(xhr.body?.get('consent')).toBe('true')
+    expect(xhr.body?.has('phone')).toBe(false)
+    expect((xhr.body?.get('cv') as File).name).toBe('cv.pdf')
+
+    xhr.respond(201, { applicationId: 'app-42' })
+    await expect(result).resolves.toEqual({ applicationId: 'app-42', demo: false })
+  })
+
+  it.each([
+    [413, /za duży/],
+    [415, /odrzucił plik/],
+    [429, /Za dużo prób/],
+    [503, /chwilowy problem/],
+  ])('maps HTTP %i to a readable message', async (status, message) => {
+    const { submitApplication, UploadError } = await loadApi()
+    const result = submitApplication(payload(), options())
+    FakeXhr.last.respond(status, null)
+    await expect(result).rejects.toBeInstanceOf(UploadError)
+    await expect(result).rejects.toThrow(message)
+  })
+
+  it('maps ASP.NET validation errors onto form fields', async () => {
+    const { submitApplication } = await loadApi()
+    const result = submitApplication(payload(), options())
+    FakeXhr.last.respond(400, {
+      title: 'One or more validation errors occurred.',
+      errors: { FullName: ['Name is too long.'], '$.email': ['Invalid e-mail.'], Unknown: ['ignored'] },
+    })
+    await expect(result).rejects.toMatchObject({
+      message: expect.stringMatching(/Popraw zaznaczone pola/),
+      fieldErrors: { fullName: 'Name is too long.', email: 'Invalid e-mail.' },
+    })
+  })
+
+  it('uses a generic message for a 400 without field errors', async () => {
+    const { submitApplication } = await loadApi()
+    const result = submitApplication(payload(), options())
+    FakeXhr.last.respond(400, { title: 'Bad request' })
+    await expect(result).rejects.toMatchObject({ message: expect.stringMatching(/odrzucił dane/), fieldErrors: {} })
+  })
+
+  it('rejects a success response without an application id', async () => {
+    const { submitApplication } = await loadApi()
+    const result = submitApplication(payload(), options())
+    FakeXhr.last.respond(200, { id: 1 })
+    await expect(result).rejects.toThrow(/nieoczekiwaną odpowiedź/)
+  })
+
+  it('aborts the request when the signal fires', async () => {
+    const { submitApplication } = await loadApi()
+    const controller = new AbortController()
+    const result = submitApplication(payload(), options(controller.signal))
+    controller.abort()
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' })
+    expect(FakeXhr.last.aborted).toBe(true)
+  })
+})

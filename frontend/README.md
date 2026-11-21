@@ -1,75 +1,106 @@
-# React + TypeScript + Vite
+# DocumentScanner – frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Ekran aplikowania na ofertę: dane kontaktowe, wgranie CV w PDF (przeciągnij i upuść albo wybór z dysku), zgoda na przetwarzanie danych i wysyłka do backendu z paskiem postępu.
 
-Currently, two official plugins are available:
+## Uruchomienie
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm install
+cp .env.example .env.local   # opcjonalnie, patrz niżej
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+| Skrypt          | Co robi                          |
+| --------------- | -------------------------------- |
+| `npm run dev`   | serwer deweloperski Vite         |
+| `npm test`      | testy (Vitest + Testing Library) |
+| `npm run lint`  | ESLint                           |
+| `npm run build` | sprawdzenie typów i build        |
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Konfiguracja
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Zmienna          | Domyślnie | Opis |
+| ---------------- | --------- | ---- |
+| `VITE_API_URL`   | pusta     | Adres backendu, np. `https://api.example.com`. Gdy pusta, formularz działa w trybie demo: wysyłka jest symulowana i plik nie opuszcza przeglądarki. |
+| `VITE_MAX_CV_MB` | `4`       | Największy przyjmowany plik w MB. 4 MB to limit planu F0 w Azure AI Document Intelligence. Na płatnym planie S0 można podnieść. |
+| `VITE_PRIVACY_POLICY_URL` | pusta | Link do klauzuli informacyjnej RODO (art. 13), pokazywany przy zgodzie. Gdy pusty, linku nie ma. |
+
+Zmienne `VITE_*` trafiają do kodu w przeglądarce, więc nie wolno w nich trzymać kluczy ani sekretów.
+
+## Kontrakt API
+
+Formularz wysyła jedno żądanie:
 
 ```
+POST {VITE_API_URL}/api/applications
+Content-Type: multipart/form-data
+Accept: application/json
+Idempotency-Key: <UUID>
+```
+
+`Idempotency-Key` jest taki sam przy każdej ponownej próbie wysłania tych samych danych i zmienia się po edycji formularza. Jeśli backend dostanie drugi raz ten sam klucz (np. po przekroczeniu czasu albo przy ponownej próbie), powinien zwrócić pierwotny `applicationId` zamiast tworzyć drugą aplikację.
+
+| Pole         | Typ      | Wymagane | Uwagi |
+| ------------ | -------- | -------- | ----- |
+| `offerId`    | tekst    | tak      | identyfikator oferty |
+| `fullName`   | tekst    | tak      | 3–100 znaków |
+| `email`      | tekst    | tak      | do 254 znaków |
+| `phone`      | tekst    | nie      | pomijane, gdy puste |
+| `profileUrl` | tekst    | nie      | tylko `http://` lub `https://`, pomijane, gdy puste |
+| `consent`    | `"true"` | tak      | zgoda na przetwarzanie CV |
+| `cv`         | plik     | tak      | jeden PDF, do `VITE_MAX_CV_MB` |
+
+Odpowiedź po sukcesie (`2xx`):
+
+```json
+{ "applicationId": "a1b2c3" }
+```
+
+`applicationId` to niepusty tekst o długości do 128 znaków. Inna odpowiedź jest traktowana jako błąd.
+
+Jeśli backend odrzuci konkretne pola, może odpowiedzieć tak jak domyślnie robi to ASP.NET Core (`ValidationProblemDetails`):
+
+```json
+{ "title": "One or more validation errors occurred.", "errors": { "Email": ["Ten adres już aplikował."] } }
+```
+
+Formularz dopasowuje klucze do pól (`fullName`, `email`, `phone`, `profileUrl`, `cv`, `consent`) bez względu na wielkość liter i znaki takie jak `$.`, pokazuje komunikat przy polu i przenosi na nie fokus. Nieznane klucze pomija.
+
+Kody błędów, które formularz tłumaczy na komunikaty dla użytkownika: `400`, `413`, `415`, `422`, `429` i `5xx`. Pozostałe kody pokazują ogólny komunikat z numerem kodu.
+
+### Co musi sprawdzić backend
+
+Walidacja w przeglądarce służy tylko wygodzie użytkownika i łatwo ją obejść. Backend powinien sam:
+
+- sprawdzić, że plik zaczyna się od `%PDF-`, i odrzucić go z `415`, jeśli nie;
+- odrzucić zbyt duży plik z `413`;
+- odrzucić PDF zabezpieczony hasłem, bo Document Intelligence go nie odczyta;
+- przyjąć `profileUrl` tylko ze schematem `http` lub `https`, zanim rekruter zobaczy go jako link;
+- odrzucić żądanie bez `consent=true`;
+- pozwolić w CORS tylko na adres frontendu i odpowiadać na preflight `OPTIONS /api/applications` (przeglądarka go wysyła, bo żądanie ma nagłówek `Idempotency-Key` i śledzi postęp wysyłki), z `Access-Control-Allow-Headers: Idempotency-Key`;
+- traktować powtórzony `Idempotency-Key` jako tę samą aplikację;
+- nie logować treści CV ani danych osobowych.
+
+## Hosting i nagłówki bezpieczeństwa
+
+Frontend trafia na Azure Static Web Apps (`infrastructure/main.tf`). Plik `public/staticwebapp.config.json` ustawia:
+
+- `Content-Security-Policy`: skrypty, style i obrazy tylko z własnej domeny, połączenia i wysyłka formularza tylko do backendu `documentscanner-backend-prod.azurewebsites.net`, zakaz osadzania w ramkach i wymuszone Trusted Types;
+- `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` i `Cross-Origin-Opener-Policy`;
+- przekierowanie nieznanych ścieżek na `index.html`, na wypadek gdyby aplikacja dostała routing.
+
+Jeśli zmieni się adres backendu, trzeba go poprawić w `connect-src` i `form-action`, bo inaczej przeglądarka zablokuje wysyłkę.
+
+## Struktura
+
+```
+src/features/cv-upload/
+  CvUploadForm.tsx   formularz i stany: edycja, wysyłanie, przetwarzanie, błąd, sukces
+  CvDropzone.tsx     strefa upuszczania pliku
+  FieldError.tsx     komunikat błędu pod polem
+  icons.tsx          ikony SVG
+  api.ts             wysyłka przez XHR (postęp, anulowanie, klucz idempotencji) i tryb demo
+  validation.ts      walidacja pól i pliku PDF
+```
+
+`CvUploadForm` przyjmuje `offer` (wybraną ofertę) i opcjonalnie `onSubmitted`, który dostaje `{ applicationId, demo }` po udanej wysyłce. Przez ten callback można przejść do widoku analizy.
