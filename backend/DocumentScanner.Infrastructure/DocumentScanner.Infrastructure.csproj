@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\DocumentScanner.Application\DocumentScanner.Application.csproj" />
+  </ItemGroup>
+
 </Project>
