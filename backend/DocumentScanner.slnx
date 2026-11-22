@@ -1,3 +1,6 @@
 <Solution>
   <Project Path="DocumentScanner.API/DocumentScanner.API.csproj" />
+  <Project Path="DocumentScanner.Application/DocumentScanner.Application.csproj" />
+  <Project Path="DocumentScanner.Domain/DocumentScanner.Domain.csproj" />
+  <Project Path="DocumentScanner.Infrastructure/DocumentScanner.Infrastructure.csproj" />
 </Solution>
